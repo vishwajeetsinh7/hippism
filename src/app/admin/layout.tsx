@@ -5,13 +5,87 @@ import { useRouter, usePathname } from 'next/navigation'
 import { useEffect, useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { LayoutDashboard, ShoppingBag, UtensilsCrossed, LogOut, Bell, X } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
 import type { Order } from '@/lib/types'
 
 let globalAudio: HTMLAudioElement | null = null
+let audioCtx: AudioContext | null = null
+let chimeInterval: NodeJS.Timeout | null = null
+let vibrateInterval: NodeJS.Timeout | null = null
+
 if (typeof window !== 'undefined') {
   globalAudio = new Audio('/ringtone.wav')
   globalAudio.loop = true
+}
+
+export function initAudioCtx() {
+  try {
+    if (!audioCtx) {
+      const Ctx = window.AudioContext || (window as any).webkitAudioContext
+      if (Ctx) audioCtx = new Ctx()
+    }
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume()
+    }
+    if (globalAudio) {
+      // Just a silent touch to unlock
+      globalAudio.play().then(() => {
+        globalAudio!.pause()
+        globalAudio!.currentTime = 0
+      }).catch(() => {})
+    }
+  } catch (e) { console.error(e) }
+}
+
+function playSingleChime() {
+  if (!audioCtx) return
+  try {
+    const frequencies = [523.25, 659.25, 783.99, 1046.5] // C5, E5, G5, C6
+    const t0 = audioCtx.currentTime
+    frequencies.forEach((freq, i) => {
+      const osc = audioCtx!.createOscillator()
+      const gain = audioCtx!.createGain()
+      osc.connect(gain)
+      gain.connect(audioCtx!.destination)
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      gain.gain.setValueAtTime(0, t0 + i * 0.12)
+      gain.gain.linearRampToValueAtTime(0.22, t0 + i * 0.12 + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + i * 0.12 + 0.4)
+      osc.start(t0 + i * 0.12)
+      osc.stop(t0 + i * 0.12 + 0.42)
+    })
+  } catch (e) {}
+}
+
+export function startAlerts() {
+  // 1. Play wav file
+  if (globalAudio) globalAudio.play().catch(() => {})
+  
+  // 2. Play Web Audio API Chime (loops every 2.5s)
+  if (!chimeInterval) {
+    playSingleChime()
+    chimeInterval = setInterval(playSingleChime, 2500)
+  }
+
+  // 3. Trigger Vibration API
+  if (!vibrateInterval && typeof navigator !== 'undefined' && navigator.vibrate) {
+    navigator.vibrate([200, 100, 200])
+    vibrateInterval = setInterval(() => {
+      navigator.vibrate([200, 100, 200])
+    }, 2500)
+  }
+}
+
+export function stopAlerts() {
+  if (globalAudio) {
+    globalAudio.pause()
+    globalAudio.currentTime = 0
+  }
+  if (chimeInterval) { clearInterval(chimeInterval); chimeInterval = null }
+  if (vibrateInterval) { clearInterval(vibrateInterval); vibrateInterval = null }
+  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    navigator.vibrate(0)
+  }
 }
 
 function useOrderNotifications(enabled: boolean) {
@@ -20,13 +94,9 @@ function useOrderNotifications(enabled: boolean) {
   const isFirstLoad = useRef(true)
   const knownOrderIds = useRef<Set<string>>(new Set())
 
-  // Play a continuous notification ringtone using the public file
+  // Play a continuous notification using all available APIs
   const playChime = useCallback(() => {
-    if (globalAudio) {
-      globalAudio.play().catch(() => {
-        // Audio might be blocked by browser until interaction
-      })
-    }
+    startAlerts()
   }, [])
 
   useEffect(() => {
@@ -108,10 +178,7 @@ function useOrderNotifications(enabled: boolean) {
   const clearNotifications = useCallback(() => {
     setNewOrders([])
     setUnreadCount(0)
-    if (globalAudio) {
-      globalAudio.pause()
-      globalAudio.currentTime = 0
-    }
+    stopAlerts()
   }, [])
 
   return { newOrders, unreadCount, clearNotifications }
@@ -188,20 +255,9 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   // This explicit click handler unlocks the AudioContext
   // It guarantees that the audio element will be allowed to play later
   const unlockAudio = () => {
-    if (globalAudio) {
-      globalAudio.play().then(() => {
-        globalAudio!.pause()
-        globalAudio!.currentTime = 0
-        setAudioUnlocked(true)
-        sessionStorage.setItem('hippism_audio_unlocked', 'true')
-      }).catch(() => {
-        setAudioUnlocked(true) // Proceed anyway if it fails
-        sessionStorage.setItem('hippism_audio_unlocked', 'true')
-      })
-    } else {
-      setAudioUnlocked(true)
-      sessionStorage.setItem('hippism_audio_unlocked', 'true')
-    }
+    initAudioCtx()
+    setAudioUnlocked(true)
+    sessionStorage.setItem('hippism_audio_unlocked', 'true')
   }
 
   const incomingOrder = newOrders.length > 0 ? newOrders[0] : null
