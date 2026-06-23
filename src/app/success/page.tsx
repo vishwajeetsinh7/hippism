@@ -164,7 +164,22 @@ function SuccessContent() {
         if (stored) setCurrentStatus(stored.status)
       }
 
-      // Subscribe to real-time status changes for this order
+      // Fallback: Robust HTTP Polling every 5 seconds
+      // This guarantees updates work on Vercel even if Supabase Realtime is disabled or blocked
+      const pollInterval = setInterval(async () => {
+        const { data } = await supabase.from('orders').select('status').eq('id', id).single()
+        if (data) {
+          const newStatus = data.status as OrderStatus
+          setCurrentStatus(prev => {
+            if (prev !== newStatus) {
+              handleStatusChange(newStatus, num, id)
+            }
+            return newStatus
+          })
+        }
+      }, 5000)
+
+      // Subscribe to real-time status changes (WebSocket)
       if (id) {
         const channel = supabase
           .channel(`order_status_${id}`)
@@ -173,27 +188,38 @@ function SuccessContent() {
             { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${id}` },
             (payload) => {
               const newStatus = payload.new.status as OrderStatus
-              handleStatusChange(newStatus, num, id)
+              setCurrentStatus(prev => {
+                if (prev !== newStatus) {
+                  handleStatusChange(newStatus, num, id)
+                }
+                return newStatus
+              })
             }
           )
           .subscribe()
         subscriptionRef.current = channel
       }
+
+      return () => clearInterval(pollInterval)
     }
 
-    initOrder()
+    let cleanupPoll: (() => void) | undefined
+    initOrder().then(cleanup => { cleanupPoll = cleanup })
 
     return () => {
       subscriptionRef.current?.unsubscribe()
+      if (cleanupPoll) cleanupPoll()
     }
   }, [searchParams, handleStatusChange])
 
   const handleAllowNotifications = async () => {
+    // Unlock Audio Context on user interaction to guarantee sound plays later!
+    playUserChime()
+    
     const perm = await requestNotificationPermission()
     setNotifPermission(perm)
     setShowNotifBanner(false)
     if (perm === 'granted') {
-      // Send a welcome notification
       try {
         new Notification('🔔 Notifications Enabled!', {
           body: `We'll notify you when ${orderNumber} status changes.`,

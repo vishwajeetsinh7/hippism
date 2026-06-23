@@ -43,6 +43,21 @@ export default function MyOrdersPage() {
     const activeOrders = stored.filter(o => activeStatuses.has(o.status))
     if (activeOrders.length === 0) return
 
+    // Fallback: Robust HTTP Polling every 5 seconds for active orders
+    const pollInterval = setInterval(async () => {
+      const activeIds = activeOrders.map(o => o.id)
+      const { data } = await supabase.from('orders').select('id, status').in('id', activeIds)
+      if (data) {
+        data.forEach(orderData => {
+          const newStatus = orderData.status as LocalOrder['status']
+          const localOrder = activeOrders.find(o => o.id === orderData.id)
+          if (localOrder && localOrder.status !== newStatus) {
+            handleStatusUpdate(localOrder.id, newStatus, localOrder.orderNumber)
+          }
+        })
+      }
+    }, 5000)
+
     const channels = activeOrders.map(order => {
       return supabase
         .channel(`myorders_${order.id}`)
@@ -57,6 +72,7 @@ export default function MyOrdersPage() {
     })
 
     return () => {
+      clearInterval(pollInterval)
       channels.forEach(c => c.unsubscribe())
     }
   }, [handleStatusUpdate])
