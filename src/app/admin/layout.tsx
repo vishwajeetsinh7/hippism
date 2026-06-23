@@ -36,6 +36,7 @@ export function initAudioCtx() {
 }
 
 function playSingleChime() {
+  initAudioCtx()
   if (!audioCtx) return
   try {
     const frequencies = [523.25, 659.25, 783.99, 1046.5] // C5, E5, G5, C6
@@ -189,6 +190,16 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
       router.push('/admin/login')
     }
   }, [user, loading, pathname, router])
+
+  // Silently initialize audio context on first click anywhere on the page
+  useEffect(() => {
+    const handleGlobalClick = () => {
+      initAudioCtx()
+      window.removeEventListener('click', handleGlobalClick)
+    }
+    window.addEventListener('click', handleGlobalClick)
+    return () => window.removeEventListener('click', handleGlobalClick)
+  }, [])
 
   // Request notification permission and check session storage for audio
   useEffect(() => {
