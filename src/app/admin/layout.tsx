@@ -118,6 +118,7 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const [showNotifications, setShowNotifications] = useState(false)
+  const [audioUnlocked, setAudioUnlocked] = useState(false)
   const { newOrders, unreadCount, clearNotifications, audioRef } = useOrderNotifications(!!user)
 
   useEffect(() => {
@@ -166,37 +167,70 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     { href: '/admin/menu', icon: <UtensilsCrossed size={18} />, label: 'Menu', exact: false },
   ]
 
-  // This simple click handler unlocks the AudioContext silently on the first interaction
+  // This explicit click handler unlocks the AudioContext
   // It guarantees that the audio element will be allowed to play later
   const unlockAudio = () => {
     if (audioRef.current) {
       audioRef.current.play().then(() => {
         audioRef.current!.pause()
         audioRef.current!.currentTime = 0
-      }).catch(() => {})
+        setAudioUnlocked(true)
+      }).catch(() => {
+        setAudioUnlocked(true) // Proceed anyway if it fails
+      })
+    } else {
+      setAudioUnlocked(true)
     }
   }
 
   return (
-    <div onClick={unlockAudio} style={{ minHeight: '100vh', background: '#F0F2F5', fontFamily: 'DM Sans, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: '#F0F2F5', fontFamily: 'DM Sans, sans-serif' }}>
       <audio ref={audioRef} src="/ringtone.wav" preload="auto" />
       
+      {/* ── Explicit Audio Unlock Overlay ── */}
+      {!audioUnlocked && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 10000,
+          background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          color: 'white', padding: '24px', textAlign: 'center'
+        }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔊</div>
+          <h2 style={{ fontFamily: 'Playfair Display, serif', fontSize: '28px', marginBottom: '12px' }}>
+            Enable Audio Alerts
+          </h2>
+          <p style={{ fontFamily: 'DM Sans, sans-serif', color: 'rgba(255,255,255,0.7)', marginBottom: '32px', maxWidth: '300px', lineHeight: 1.5 }}>
+            To hear the continuous ringtone when new orders arrive, your browser requires you to click below.
+          </p>
+          <button onClick={unlockAudio} style={{
+            background: '#D4A373', color: '#1a4731', fontWeight: 800, fontSize: '16px',
+            border: 'none', padding: '16px 32px', borderRadius: '12px', cursor: 'pointer',
+            boxShadow: '0 8px 24px rgba(212,163,115,0.4)',
+            transition: 'transform 0.2s',
+          }} onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.95)'}
+             onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}>
+            Enable Sound & Enter
+          </button>
+        </div>
+      )}
+
       {/* ── New Order Popup Overlay ── */}
       {unreadCount > 0 && (
         <div style={{
-          position: 'fixed', bottom: 40, left: '50%', transform: 'translateX(-50%)',
+          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
           background: '#ef4444', color: 'white',
-          padding: '16px 24px', borderRadius: '16px',
-          boxShadow: '0 10px 40px rgba(239,68,68,0.4)',
-          zIndex: 9999, display: 'flex', alignItems: 'center', gap: '16px',
-          cursor: 'pointer', animation: 'bounce-gentle 1s infinite'
+          padding: '24px 32px', borderRadius: '24px',
+          boxShadow: '0 16px 60px rgba(239,68,68,0.5), 0 0 0 100vw rgba(0,0,0,0.4)',
+          zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
+          cursor: 'pointer', animation: 'bounce-gentle 1s infinite',
+          textAlign: 'center'
         }} onClick={clearNotifications}>
-          <div style={{ fontSize: '24px' }}>🔔</div>
+          <div style={{ fontSize: '48px', animation: 'pulse-ring 1s infinite' }}>🔔</div>
           <div>
-            <p style={{ fontWeight: 800, fontSize: '18px', fontFamily: 'DM Sans, sans-serif', margin: 0 }}>
+            <p style={{ fontWeight: 800, fontSize: '24px', fontFamily: 'DM Sans, sans-serif', margin: 0 }}>
               {unreadCount} New Order{unreadCount > 1 ? 's' : ''}!
             </p>
-            <p style={{ fontSize: '13px', margin: 0, opacity: 0.9, marginTop: '4px' }}>
+            <p style={{ fontSize: '15px', margin: 0, opacity: 0.9, marginTop: '8px', fontWeight: 500 }}>
               Click here to acknowledge & stop ringing
             </p>
           </div>

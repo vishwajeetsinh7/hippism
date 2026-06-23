@@ -15,6 +15,35 @@ export default function CheckoutPage() {
   const [formData, setFormData] = useState({ name: '', mobile: '', notes: '' })
   const [errors, setErrors] = useState({ name: '', mobile: '' })
   const [focusedField, setFocusedField] = useState<string | null>(null)
+  
+  const [queueCount, setQueueCount] = useState<number | null>(null)
+  const [isAutofilled, setIsAutofilled] = useState(false)
+
+  // Load customer info & queue length on mount
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem('hippism_customer_info')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (parsed.name && parsed.mobile) {
+          setFormData(prev => ({ ...prev, name: parsed.name, mobile: parsed.mobile }))
+          setIsAutofilled(true)
+        }
+      }
+    } catch {}
+
+    async function fetchQueue() {
+      const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+      const { count } = await supabase
+        .from('orders')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['pending', 'preparing'])
+        .gte('created_at', threeHoursAgo)
+      
+      setQueueCount(count || 0)
+    }
+    fetchQueue()
+  }, [])
 
   const validateForm = () => {
     const newErrors = { name: '', mobile: '' }
@@ -97,6 +126,14 @@ export default function CheckoutPage() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       })
+
+      // Save customer info for future autofill
+      try {
+        localStorage.setItem('hippism_customer_info', JSON.stringify({
+          name: formData.name.trim(),
+          mobile: formData.mobile.trim()
+        }))
+      } catch {}
 
       clearCart()
       router.push(`/success?order=${orderNumber}&id=${order.id}`)
@@ -226,6 +263,25 @@ export default function CheckoutPage() {
           </div>
         </div>
 
+        {/* ── Queue Notice ── */}
+        {queueCount !== null && (
+          <div style={{
+            background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '14px',
+            padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px',
+            marginBottom: '16px', animation: 'fadeIn 0.5s ease-out',
+          }}>
+            <div style={{ fontSize: '20px' }}>👨‍🍳</div>
+            <div>
+              <p style={{ fontWeight: 700, fontSize: '14px', color: '#92400e', fontFamily: 'DM Sans, sans-serif' }}>
+                {queueCount === 0 ? 'No wait right now!' : `${queueCount} order${queueCount !== 1 ? 's' : ''} in queue`}
+              </p>
+              <p style={{ fontSize: '12px', color: '#b45309', fontFamily: 'DM Sans, sans-serif' }}>
+                {queueCount === 0 ? 'Your order will be prepared immediately.' : 'Your order will be placed in the kitchen queue.'}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ── Customer Details Form ── */}
         <form onSubmit={handleSubmit}>
           <div className="card" style={{ overflow: 'hidden' }}>
@@ -242,6 +298,38 @@ export default function CheckoutPage() {
             </div>
 
             <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {isAutofilled ? (
+                <div style={{
+                  background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px',
+                  padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: 40, height: 40, background: '#e0e7ff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5' }}>
+                      <User size={20} />
+                    </div>
+                    <div>
+                      <p style={{ fontWeight: 700, fontSize: '15px', color: '#1e293b', fontFamily: 'DM Sans, sans-serif' }}>
+                        {formData.name}
+                      </p>
+                      <p style={{ fontSize: '13px', color: '#64748b', fontFamily: 'DM Sans, sans-serif' }}>
+                        +91 {formData.mobile}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsAutofilled(false)}
+                    style={{
+                      background: 'none', border: 'none', color: '#1a4731', fontWeight: 700,
+                      fontSize: '13px', cursor: 'pointer', fontFamily: 'DM Sans, sans-serif',
+                      padding: '8px', textDecoration: 'underline'
+                    }}
+                  >
+                    Edit
+                  </button>
+                </div>
+              ) : (
+                <>
               {/* Name field */}
               <div>
                 <label style={{
@@ -333,6 +421,8 @@ export default function CheckoutPage() {
                   </p>
                 )}
               </div>
+              </>
+              )}
 
               {/* Notes field */}
               <div>
