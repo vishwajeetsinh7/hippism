@@ -74,6 +74,9 @@ export default function AdminOrdersPage() {
   }
 
   async function openOrderDetails(order: Order) {
+    // Stop the layout ringtone since the admin is acknowledging an order
+    window.dispatchEvent(new Event('stop-admin-ringtone'))
+    
     setSelectedOrder(order)
     const { data } = await supabase.from('order_items').select('*').eq('order_id', order.id)
     setOrderItems(data || [])

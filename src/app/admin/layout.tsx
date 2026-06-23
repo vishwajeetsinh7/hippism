@@ -11,30 +11,17 @@ import type { Order } from '@/lib/types'
 function useOrderNotifications(enabled: boolean) {
   const [newOrders, setNewOrders] = useState<Order[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
-  const audioRef = useRef<AudioContext | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
   const isFirstLoad = useRef(true)
   const knownOrderIds = useRef<Set<string>>(new Set())
 
-  // Play a pleasant notification chime using Web Audio API
+  // Play a continuous notification ringtone using the public file
   const playChime = useCallback(() => {
-    try {
-      const ctx = new AudioContext()
-      const frequencies = [523.25, 659.25, 783.99, 1046.5] // C5, E5, G5, C6
-      frequencies.forEach((freq, i) => {
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.connect(gain)
-        gain.connect(ctx.destination)
-        osc.type = 'sine'
-        osc.frequency.value = freq
-        gain.gain.setValueAtTime(0, ctx.currentTime + i * 0.12)
-        gain.gain.linearRampToValueAtTime(0.22, ctx.currentTime + i * 0.12 + 0.02)
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.12 + 0.4)
-        osc.start(ctx.currentTime + i * 0.12)
-        osc.stop(ctx.currentTime + i * 0.12 + 0.42)
+    if (audioRef.current) {
+      audioRef.current.loop = true
+      audioRef.current.play().catch(() => {
+        // Audio might be blocked by browser until interaction
       })
-    } catch {
-      // Web Audio not available
     }
   }, [])
 
@@ -115,12 +102,16 @@ function useOrderNotifications(enabled: boolean) {
     }
   }, [enabled, playChime])
 
-  const clearNotifications = () => {
+  const clearNotifications = useCallback(() => {
     setNewOrders([])
     setUnreadCount(0)
-  }
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+    }
+  }, [])
 
-  return { newOrders, unreadCount, clearNotifications }
+  return { newOrders, unreadCount, clearNotifications, audioRef }
 }
 
 function AdminLayoutContent({ children }: { children: React.ReactNode }) {
@@ -128,7 +119,7 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const [showNotifications, setShowNotifications] = useState(false)
-  const { newOrders, unreadCount, clearNotifications } = useOrderNotifications(!!user)
+  const { newOrders, unreadCount, clearNotifications, audioRef } = useOrderNotifications(!!user)
 
   useEffect(() => {
     if (!loading && !user && pathname !== '/admin/login') {
@@ -142,6 +133,13 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
       Notification.requestPermission()
     }
   }, [user])
+
+  // Stop the ringtone if they click an order on the orders page
+  useEffect(() => {
+    const handleStopRingtone = () => clearNotifications()
+    window.addEventListener('stop-admin-ringtone', handleStopRingtone)
+    return () => window.removeEventListener('stop-admin-ringtone', handleStopRingtone)
+  }, [clearNotifications])
 
   if (loading) {
     return (
@@ -170,16 +168,19 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   ]
 
   // This simple click handler unlocks the AudioContext silently on the first interaction
-  // It guarantees that the playChime() function will work when a background poll detects an order
+  // It guarantees that the audio element will be allowed to play later
   const unlockAudio = () => {
-    try {
-      const ctx = new AudioContext()
-      ctx.resume()
-    } catch {}
+    if (audioRef.current) {
+      audioRef.current.play().then(() => {
+        audioRef.current!.pause()
+        audioRef.current!.currentTime = 0
+      }).catch(() => {})
+    }
   }
 
   return (
     <div onClick={unlockAudio} style={{ minHeight: '100vh', background: '#F0F2F5', fontFamily: 'DM Sans, sans-serif' }}>
+      <audio ref={audioRef} src="/ringtone.wav" preload="auto" />
       {/* ── Top Header ── */}
       <header style={{
         background: 'linear-gradient(135deg, #1a4731 0%, #2D5A3D 100%)',
