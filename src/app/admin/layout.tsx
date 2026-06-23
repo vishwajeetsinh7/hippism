@@ -55,6 +55,37 @@ function useOrderNotifications(enabled: boolean) {
 
     loadInitialOrders()
 
+    // Fallback: Robust HTTP Polling every 5 seconds for NEW orders
+    const pollInterval = setInterval(async () => {
+      if (isFirstLoad.current) return
+      
+      const { data } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(10)
+        
+      if (data) {
+        const newOnes = data.filter(o => !knownOrderIds.current.has(o.id))
+        if (newOnes.length > 0) {
+          newOnes.forEach(o => knownOrderIds.current.add(o.id))
+          setNewOrders(prev => [...newOnes, ...prev])
+          setUnreadCount(c => c + newOnes.length)
+          playChime()
+          
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            newOnes.forEach(order => {
+              new Notification('🍽️ New Order!', {
+                body: `${order.order_number} — ${order.customer_name} — ₹${order.total}`,
+                icon: '/favicon.ico',
+              })
+            })
+          }
+        }
+      }
+    }, 5000)
+
+    // Subscribe to real-time status changes (WebSocket)
     const channel = supabase
       .channel('admin_new_orders')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, (payload) => {
@@ -75,9 +106,13 @@ function useOrderNotifications(enabled: boolean) {
           })
         }
       })
+      })
       .subscribe()
 
-    return () => { channel.unsubscribe() }
+    return () => {
+      clearInterval(pollInterval)
+      channel.unsubscribe()
+    }
   }, [enabled, playChime])
 
   const clearNotifications = () => {
@@ -134,8 +169,17 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     { href: '/admin/menu', icon: <UtensilsCrossed size={18} />, label: 'Menu', exact: false },
   ]
 
+  // This simple click handler unlocks the AudioContext silently on the first interaction
+  // It guarantees that the playChime() function will work when a background poll detects an order
+  const unlockAudio = () => {
+    try {
+      const ctx = new AudioContext()
+      ctx.resume()
+    } catch {}
+  }
+
   return (
-    <div style={{ minHeight: '100vh', background: '#F0F2F5', fontFamily: 'DM Sans, sans-serif' }}>
+    <div onClick={unlockAudio} style={{ minHeight: '100vh', background: '#F0F2F5', fontFamily: 'DM Sans, sans-serif' }}>
       {/* ── Top Header ── */}
       <header style={{
         background: 'linear-gradient(135deg, #1a4731 0%, #2D5A3D 100%)',

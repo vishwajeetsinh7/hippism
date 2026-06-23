@@ -96,8 +96,15 @@ export default function AdminDashboard() {
       }
     }
     fetchStats()
+    
+    // Fallback: Robust HTTP Polling every 5 seconds
+    const pollInterval = setInterval(fetchStats, 5000)
+
     const subscription = supabase.channel('dashboard_orders').on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchStats).subscribe()
-    return () => { subscription.unsubscribe() }
+    return () => {
+      clearInterval(pollInterval)
+      subscription.unsubscribe()
+    }
   }, [])
 
   const statusColors: Record<string, { bg: string; color: string; label: string }> = {

@@ -43,11 +43,19 @@ export default function AdminOrdersPage() {
 
   useEffect(() => {
     fetchOrders()
+    
+    // Fallback: Robust HTTP Polling every 5 seconds
+    const pollInterval = setInterval(fetchOrders, 5000)
+
     const subscription = supabase
       .channel('orders_admin_realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchOrders)
       .subscribe()
-    return () => { subscription.unsubscribe() }
+      
+    return () => {
+      clearInterval(pollInterval)
+      subscription.unsubscribe()
+    }
   }, [fetchOrders])
 
   async function updateOrderStatus(orderId: string, status: string) {
