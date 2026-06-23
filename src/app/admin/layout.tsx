@@ -5,17 +5,12 @@ import { useRouter, usePathname } from 'next/navigation'
 import { useEffect, useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { LayoutDashboard, ShoppingBag, UtensilsCrossed, LogOut, Bell, X } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 import type { Order } from '@/lib/types'
 
-let globalAudio: HTMLAudioElement | null = null
 let audioCtx: AudioContext | null = null
 let chimeInterval: NodeJS.Timeout | null = null
 let vibrateInterval: NodeJS.Timeout | null = null
-
-if (typeof window !== 'undefined') {
-  globalAudio = new Audio('/ringtone.wav')
-  globalAudio.loop = true
-}
 
 export function initAudioCtx() {
   try {
@@ -26,12 +21,16 @@ export function initAudioCtx() {
     if (audioCtx && audioCtx.state === 'suspended') {
       audioCtx.resume()
     }
-    if (globalAudio) {
-      // Just a silent touch to unlock
-      globalAudio.play().then(() => {
-        globalAudio!.pause()
-        globalAudio!.currentTime = 0
-      }).catch(() => {})
+    
+    // Play a silent, extremely short oscillator just to unlock the context fully on iOS
+    if (audioCtx) {
+      const osc = audioCtx.createOscillator()
+      const gain = audioCtx.createGain()
+      osc.connect(gain)
+      gain.connect(audioCtx.destination)
+      gain.gain.value = 0 // silent
+      osc.start(audioCtx.currentTime)
+      osc.stop(audioCtx.currentTime + 0.001)
     }
   } catch (e) { console.error(e) }
 }
@@ -58,16 +57,13 @@ function playSingleChime() {
 }
 
 export function startAlerts() {
-  // 1. Play wav file
-  if (globalAudio) globalAudio.play().catch(() => {})
-  
-  // 2. Play Web Audio API Chime (loops every 2.5s)
+  // 1. Play Web Audio API Chime (loops every 2.5s)
   if (!chimeInterval) {
     playSingleChime()
     chimeInterval = setInterval(playSingleChime, 2500)
   }
 
-  // 3. Trigger Vibration API
+  // 2. Trigger Vibration API
   if (!vibrateInterval && typeof navigator !== 'undefined' && navigator.vibrate) {
     navigator.vibrate([200, 100, 200])
     vibrateInterval = setInterval(() => {
@@ -77,10 +73,6 @@ export function startAlerts() {
 }
 
 export function stopAlerts() {
-  if (globalAudio) {
-    globalAudio.pause()
-    globalAudio.currentTime = 0
-  }
   if (chimeInterval) { clearInterval(chimeInterval); chimeInterval = null }
   if (vibrateInterval) { clearInterval(vibrateInterval); vibrateInterval = null }
   if (typeof navigator !== 'undefined' && navigator.vibrate) {
