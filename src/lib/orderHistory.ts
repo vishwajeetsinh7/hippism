@@ -112,7 +112,6 @@ export function sendOrderNotification(
       icon: '/favicon.ico',
       badge: '/favicon.ico',
       tag: orderNumber,        // replaces previous notification for same order
-      renotify: true,
     })
   } catch {
     // Notification API unavailable
