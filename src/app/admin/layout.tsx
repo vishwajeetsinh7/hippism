@@ -180,6 +180,29 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   return (
     <div onClick={unlockAudio} style={{ minHeight: '100vh', background: '#F0F2F5', fontFamily: 'DM Sans, sans-serif' }}>
       <audio ref={audioRef} src="/ringtone.wav" preload="auto" />
+      
+      {/* ── New Order Popup Overlay ── */}
+      {unreadCount > 0 && (
+        <div style={{
+          position: 'fixed', bottom: 40, left: '50%', transform: 'translateX(-50%)',
+          background: '#ef4444', color: 'white',
+          padding: '16px 24px', borderRadius: '16px',
+          boxShadow: '0 10px 40px rgba(239,68,68,0.4)',
+          zIndex: 9999, display: 'flex', alignItems: 'center', gap: '16px',
+          cursor: 'pointer', animation: 'bounce-gentle 1s infinite'
+        }} onClick={clearNotifications}>
+          <div style={{ fontSize: '24px' }}>🔔</div>
+          <div>
+            <p style={{ fontWeight: 800, fontSize: '18px', fontFamily: 'DM Sans, sans-serif', margin: 0 }}>
+              {unreadCount} New Order{unreadCount > 1 ? 's' : ''}!
+            </p>
+            <p style={{ fontSize: '13px', margin: 0, opacity: 0.9, marginTop: '4px' }}>
+              Click here to acknowledge & stop ringing
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── Top Header ── */}
       <header style={{
         background: 'linear-gradient(135deg, #1a4731 0%, #2D5A3D 100%)',
