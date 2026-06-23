@@ -93,7 +93,6 @@ function useOrderNotifications(enabled: boolean) {
           })
         }
       })
-      })
       .subscribe()
 
     return () => {
