@@ -8,18 +8,22 @@ import { LayoutDashboard, ShoppingBag, UtensilsCrossed, LogOut, Bell, X } from '
 import { supabase } from '@/lib/supabase'
 import type { Order } from '@/lib/types'
 
+let globalAudio: HTMLAudioElement | null = null
+if (typeof window !== 'undefined') {
+  globalAudio = new Audio('/ringtone.wav')
+  globalAudio.loop = true
+}
+
 function useOrderNotifications(enabled: boolean) {
   const [newOrders, setNewOrders] = useState<Order[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
   const isFirstLoad = useRef(true)
   const knownOrderIds = useRef<Set<string>>(new Set())
 
   // Play a continuous notification ringtone using the public file
   const playChime = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.loop = true
-      audioRef.current.play().catch(() => {
+    if (globalAudio) {
+      globalAudio.play().catch(() => {
         // Audio might be blocked by browser until interaction
       })
     }
@@ -104,13 +108,13 @@ function useOrderNotifications(enabled: boolean) {
   const clearNotifications = useCallback(() => {
     setNewOrders([])
     setUnreadCount(0)
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.currentTime = 0
+    if (globalAudio) {
+      globalAudio.pause()
+      globalAudio.currentTime = 0
     }
   }, [])
 
-  return { newOrders, unreadCount, clearNotifications, audioRef }
+  return { newOrders, unreadCount, clearNotifications }
 }
 
 function AdminLayoutContent({ children }: { children: React.ReactNode }) {
@@ -118,8 +122,8 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const [showNotifications, setShowNotifications] = useState(false)
-  const [audioUnlocked, setAudioUnlocked] = useState(false)
-  const { newOrders, unreadCount, clearNotifications, audioRef } = useOrderNotifications(!!user)
+  const [audioUnlocked, setAudioUnlocked] = useState(true) // Default true to avoid flash, check in useEffect
+  const { newOrders, unreadCount, clearNotifications } = useOrderNotifications(!!user)
 
   useEffect(() => {
     if (!loading && !user && pathname !== '/admin/login') {
@@ -127,10 +131,15 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     }
   }, [user, loading, pathname, router])
 
-  // Request notification permission
+  // Request notification permission and check session storage for audio
   useEffect(() => {
-    if (user && typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      Notification.requestPermission()
+    if (user) {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        Notification.requestPermission()
+      }
+      if (sessionStorage.getItem('hippism_audio_unlocked') !== 'true') {
+        setAudioUnlocked(false)
+      }
     }
   }, [user])
 
@@ -140,6 +149,15 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
     window.addEventListener('stop-admin-ringtone', handleStopRingtone)
     return () => window.removeEventListener('stop-admin-ringtone', handleStopRingtone)
   }, [clearNotifications])
+
+  async function handlePrepareOrder(orderId: string) {
+    try {
+      await supabase.from('orders').update({ status: 'preparing' }).eq('id', orderId)
+      clearNotifications()
+    } catch (e) {
+      console.error(e)
+    }
+  }
 
   if (loading) {
     return (
@@ -170,25 +188,29 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
   // This explicit click handler unlocks the AudioContext
   // It guarantees that the audio element will be allowed to play later
   const unlockAudio = () => {
-    if (audioRef.current) {
-      audioRef.current.play().then(() => {
-        audioRef.current!.pause()
-        audioRef.current!.currentTime = 0
+    if (globalAudio) {
+      globalAudio.play().then(() => {
+        globalAudio!.pause()
+        globalAudio!.currentTime = 0
         setAudioUnlocked(true)
+        sessionStorage.setItem('hippism_audio_unlocked', 'true')
       }).catch(() => {
         setAudioUnlocked(true) // Proceed anyway if it fails
+        sessionStorage.setItem('hippism_audio_unlocked', 'true')
       })
     } else {
       setAudioUnlocked(true)
+      sessionStorage.setItem('hippism_audio_unlocked', 'true')
     }
   }
 
+  const incomingOrder = newOrders.length > 0 ? newOrders[0] : null
+
   return (
     <div style={{ minHeight: '100vh', background: '#F0F2F5', fontFamily: 'DM Sans, sans-serif' }}>
-      <audio ref={audioRef} src="/ringtone.wav" preload="auto" />
       
       {/* ── Explicit Audio Unlock Overlay ── */}
-      {!audioUnlocked && (
+      {!audioUnlocked && user && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 10000,
           background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)',
@@ -214,25 +236,61 @@ function AdminLayoutContent({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* ── New Order Popup Overlay ── */}
-      {unreadCount > 0 && (
+      {/* ── Shopify-Style New Order Dialog ── */}
+      {incomingOrder && (
         <div style={{
-          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-          background: '#ef4444', color: 'white',
-          padding: '24px 32px', borderRadius: '24px',
-          boxShadow: '0 16px 60px rgba(239,68,68,0.5), 0 0 0 100vw rgba(0,0,0,0.4)',
-          zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
-          cursor: 'pointer', animation: 'bounce-gentle 1s infinite',
-          textAlign: 'center'
-        }} onClick={clearNotifications}>
-          <div style={{ fontSize: '48px', animation: 'pulse-ring 1s infinite' }}>🔔</div>
-          <div>
-            <p style={{ fontWeight: 800, fontSize: '24px', fontFamily: 'DM Sans, sans-serif', margin: 0 }}>
-              {unreadCount} New Order{unreadCount > 1 ? 's' : ''}!
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)',
+          animation: 'fadeIn 0.2s ease-out'
+        }}>
+          <div style={{
+            background: 'white', padding: '32px', borderRadius: '24px', width: '90%', maxWidth: '400px',
+            boxShadow: '0 24px 60px rgba(0,0,0,0.2)', textAlign: 'center',
+            animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+          }}>
+            <div style={{
+              width: 64, height: 64, background: '#f0fdf4', borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px',
+              border: '4px solid #dcfce7', fontSize: '32px', animation: 'pulse-ring 1s infinite'
+            }}>
+              🔔
+            </div>
+            
+            <h2 style={{ fontFamily: 'Playfair Display, serif', fontSize: '26px', color: '#1a1a1a', margin: '0 0 8px 0' }}>
+              New Order!
+            </h2>
+            <p style={{ fontFamily: 'DM Sans, sans-serif', color: '#666', fontSize: '15px', margin: '0 0 24px 0', lineHeight: 1.5 }}>
+              <strong style={{ color: '#1a1a1a' }}>{incomingOrder.customer_name}</strong> just placed order <strong style={{ color: '#1a1a1a' }}>{incomingOrder.order_number}</strong> for ₹{incomingOrder.total}.
+              {unreadCount > 1 && <span style={{ display: 'block', marginTop: '8px', color: '#ef4444', fontWeight: 600 }}>+ {unreadCount - 1} other new orders!</span>}
             </p>
-            <p style={{ fontSize: '15px', margin: 0, opacity: 0.9, marginTop: '8px', fontWeight: 500 }}>
-              Click here to acknowledge & stop ringing
-            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <button 
+                onClick={() => handlePrepareOrder(incomingOrder.id)}
+                style={{
+                  background: '#1a4731', color: 'white', border: 'none', padding: '14px',
+                  borderRadius: '12px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
+                  fontFamily: 'DM Sans, sans-serif', transition: 'all 0.2s',
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = '#2D5A3D'}
+                onMouseOut={(e) => e.currentTarget.style.background = '#1a4731'}
+              >
+                Start Preparing
+              </button>
+              
+              <button 
+                onClick={clearNotifications}
+                style={{
+                  background: 'white', color: '#1a1a1a', border: '1.5px solid #e5e5e5', padding: '14px',
+                  borderRadius: '12px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
+                  fontFamily: 'DM Sans, sans-serif', transition: 'all 0.2s',
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = '#f9f9f9'}
+                onMouseOut={(e) => e.currentTarget.style.background = 'white'}
+              >
+                Add to Queue
+              </button>
+            </div>
           </div>
         </div>
       )}
