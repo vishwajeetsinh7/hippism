@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, User, Phone, FileText, Loader2, ChevronRight, CheckCircle2 } from 'lucide-react'
@@ -20,7 +20,7 @@ export default function CheckoutPage() {
   const [isAutofilled, setIsAutofilled] = useState(false)
 
   // Load customer info & queue length on mount
-  React.useEffect(() => {
+  useEffect(() => {
     try {
       const saved = localStorage.getItem('hippism_customer_info')
       if (saved) {
